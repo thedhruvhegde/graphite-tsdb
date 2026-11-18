@@ -97,12 +97,12 @@ impl LsmTree {
         let wal_path = data_dir.join("wal.log");
         let wal = Wal::open(&wal_path)?;
 
-        let symbol_dict = SymbolDictionary::new();
+        let symbol_dict = load_symbol_dict(&data_dir)?;
         let compaction = CompactionManager::new(&data_dir, symbol_dict.clone());
         let cache = SharedBlockCache::new(config.cache_size_mb);
 
+        #[cfg(feature = "cold-tier")]
         let cold_tier: Option<Arc<ColdTier>> = {
-            #[cfg(feature = "cold-tier")]
             {
                 if let Some(uri) = &config.cold_tier_uri {
                     Some(Arc::new(ColdTier::open(
@@ -113,10 +113,6 @@ impl LsmTree {
                 } else {
                     None
                 }
-            }
-            #[cfg(not(feature = "cold-tier"))]
-            {
-                None
             }
         };
         let _ = &config.cold_tier_uri;
@@ -152,6 +148,16 @@ impl LsmTree {
         }
 
         Ok(lsm)
+    }
+
+    /// Look up or assign a symbol ID; persists the dictionary when a new symbol appears.
+    fn intern_locked(&self, dict: &mut SymbolDictionary, symbol: &str) -> Result<u16, LsmError> {
+        let before = dict.len();
+        let id = dict.get_or_insert(symbol);
+        if dict.len() != before {
+            save_symbol_dict(&self.data_dir, dict)?;
+        }
+        Ok(id)
     }
 
     fn open_sstable(&self, path: &Path) -> Result<SsTable, LsmError> {
@@ -239,7 +245,8 @@ impl LsmTree {
             ));
         }
         let mut dict = self.symbol_dict.write();
-        let symbol_id = dict.get_or_insert(symbol);
+        let symbol_id = self.intern_locked(&mut dict, symbol)?;
+        drop(dict); // release before flush_memtable(), which takes a read lock (parking_lot is not re-entrant)
         let tick = Tick {
             symbol_id,
             ..tick
@@ -278,7 +285,8 @@ impl LsmTree {
         }
 
         let mut dict = self.symbol_dict.write();
-        let symbol_id = dict.get_or_insert(symbol);
+        let symbol_id = self.intern_locked(&mut dict, symbol)?;
+        drop(dict);
 
         let mut wal_records = Vec::with_capacity(batch.len());
         let mut memtable = self.memtable.write();
@@ -312,12 +320,13 @@ impl LsmTree {
         let mut memtable = self.memtable.write();
 
         for tick in ticks {
-            let symbol_id = dict.get_or_insert(&tick.symbol);
+            let symbol_id = self.intern_locked(&mut dict, &tick.symbol)?;
             let stored = tick.to_tick(symbol_id);
             wal_records.push(WalRecord::Insert(stored));
             memtable.insert(stored);
             self.total_rows.fetch_add(1, Ordering::Relaxed);
         }
+        drop(dict);
 
         self.wal.write().append_batch(&wal_records)?;
 
@@ -435,7 +444,7 @@ impl LsmTree {
             }
         }
 
-        result.sort_by(|a, b| (a.symbol_id, a.timestamp).cmp(&(b.symbol_id, b.timestamp)));
+        result.sort_by_key(|a| (a.symbol_id, a.timestamp));
         result.dedup_by(|a, b| a.symbol_id == b.symbol_id && a.timestamp == b.timestamp);
 
         Ok(result)
@@ -486,7 +495,9 @@ impl LsmTree {
     }
 
     pub fn compact(&self) -> Result<(), LsmError> {
+        let dict = self.symbol_dict.read().clone();
         let mut compaction = self.compaction.write();
+        compaction.set_symbol_dict(dict);
         compaction.compact(Some(&self.cache))?;
         Ok(())
     }
@@ -571,7 +582,7 @@ impl LsmTree {
         for entry in entries {
             if let WalRecord::Insert(tick) = &entry.record {
                 let symbol_id = if let Some(sym) = &entry.symbol {
-                    dict.get_or_insert(sym)
+                    self.intern_locked(&mut dict, sym)?
                 } else {
                     tick.symbol_id
                 };
@@ -625,4 +636,29 @@ impl LsmTree {
     pub fn replication_last_applied(&self) -> Option<u64> {
         self.replication.read().last_applied()
     }
+}
+
+const SYMBOL_DICT_FILE: &str = "symbols.dict";
+
+/// Load the persisted symbol dictionary (empty if none yet).
+fn load_symbol_dict(data_dir: &Path) -> Result<SymbolDictionary, LsmError> {
+    let path = data_dir.join(SYMBOL_DICT_FILE);
+    match std::fs::read(&path) {
+        Ok(bytes) => Ok(SymbolDictionary::from_metadata(&bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SymbolDictionary::new()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Atomically persist the symbol dictionary (write temp file, fsync, rename).
+fn save_symbol_dict(data_dir: &Path, dict: &SymbolDictionary) -> Result<(), LsmError> {
+    use std::io::Write;
+    let tmp = data_dir.join(format!("{SYMBOL_DICT_FILE}.tmp"));
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(&dict.to_metadata())?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, data_dir.join(SYMBOL_DICT_FILE))?;
+    Ok(())
 }

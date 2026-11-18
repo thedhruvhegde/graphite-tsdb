@@ -17,17 +17,18 @@ fn write_throughput(c: &mut Criterion) {
                     let dir = tempdir().unwrap();
                     let db = DB::open(dir.path()).unwrap();
                     for i in 0..count {
+                        db.insert(
+                            "AAPL",
+                            i as i64 * 1_000_000_000,
+                            150.0 + (i as f64) * 0.01,
+                            151.0 + (i as f64) * 0.01,
+                            149.0 + (i as f64) * 0.01,
+                            150.0 + (i as f64) * 0.01,
+                            1000,
+                        )
+                        .unwrap();
                         black_box(
-                            db.insert(
-                                "AAPL",
-                                i as i64 * 1_000_000_000,
-                                150.0 + (i as f64) * 0.01,
-                                151.0 + (i as f64) * 0.01,
-                                149.0 + (i as f64) * 0.01,
-                                150.0 + (i as f64) * 0.01,
-                                1000,
-                            )
-                            .unwrap(),
+                            (),
                         );
                     }
                 });

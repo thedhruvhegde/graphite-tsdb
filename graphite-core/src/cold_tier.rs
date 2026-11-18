@@ -233,7 +233,7 @@ mod tests {
         let path = data_dir.path().join("L2_000001.sst");
         let table = SsTable::write(&path, &ticks, 2, &dict).unwrap();
 
-        let mut cold = ColdTier::open(data_dir.path().to_path_buf(), &store_uri, 2).unwrap();
+        let cold = ColdTier::open(data_dir.path().to_path_buf(), &store_uri, 2).unwrap();
         let synced = cold.sync_tables(&[&table]).unwrap();
         assert_eq!(synced, 1);
 

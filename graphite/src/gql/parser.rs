@@ -207,9 +207,17 @@ impl Lexer {
                 }
             }
             c if c.is_ascii_digit() || c == '-' => {
+                let start = self.pos;
                 let num = self.read_number()?;
-                if num.fract() == 0.0 && num.abs() < 1e15 {
-                    Ok(Some(Token::Integer(num as i64)))
+                let text: String = self.input[start..self.pos].iter().collect();
+                if !text.contains('.') {
+                    // Parse integers exactly as i64 (nanosecond timestamps exceed 2^53).
+                    text.parse::<i64>().map(|n| Some(Token::Integer(n))).map_err(|_| {
+                        ParseError::Message {
+                            pos: self.pos,
+                            message: format!("integer out of range: {text}"),
+                        }
+                    })
                 } else {
                     Ok(Some(Token::Number(num)))
                 }

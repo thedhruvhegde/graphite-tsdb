@@ -1105,6 +1105,8 @@ dependencies = [
  "clap",
  "futures-util",
  "graphite",
+ "graphite-core",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

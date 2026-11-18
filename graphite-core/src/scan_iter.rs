@@ -53,7 +53,7 @@ impl ScanStream {
                 None => true,
             })
             .collect();
-        memtable_ticks.sort_by(|a, b| (a.symbol_id, a.timestamp).cmp(&(b.symbol_id, b.timestamp)));
+        memtable_ticks.sort_by_key(|a| (a.symbol_id, a.timestamp));
 
         let mut sstable_paths = Vec::new();
         for level in &compaction.levels {
@@ -109,7 +109,7 @@ impl ScanStream {
                 Some(&self.cache),
             );
             self.current_batch = ticks;
-            self.current_batch.sort_by(|a, b| (a.symbol_id, a.timestamp).cmp(&(b.symbol_id, b.timestamp)));
+            self.current_batch.sort_by_key(|a| (a.symbol_id, a.timestamp));
             self.current_batch_idx = 0;
             return true;
         }

@@ -13,6 +13,7 @@ fn db_err(e: DbError) -> PyErr {
         DbError::Parse(e) => PyValueError::new_err(e.to_string()),
         DbError::Exec(e) => PyRuntimeError::new_err(e.to_string()),
         DbError::NotOpen => PyRuntimeError::new_err("database not open"),
+        DbError::Replication(e) => PyRuntimeError::new_err(e.to_string()),
     }
 }
 

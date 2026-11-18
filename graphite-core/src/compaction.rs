@@ -58,6 +58,11 @@ impl CompactionManager {
         }
     }
 
+    /// Refresh the dictionary used when writing merged SSTables.
+    pub fn set_symbol_dict(&mut self, dict: SymbolDictionary) {
+        self.symbol_dict = dict;
+    }
+
     pub fn needs_compaction(&self) -> bool {
         if self.levels.is_empty() {
             return false;
@@ -114,18 +119,11 @@ impl CompactionManager {
 
         let mut all_ticks: Vec<Tick> = Vec::new();
         for path in &table_paths {
-            let table = SsTable::open(path)?;
-            self.bytes_read += table.meta.file_size;
             let mut t = SsTable::open(path)?;
+            self.bytes_read += std::fs::metadata(path)?.len();
             let ticks = t.scan(None, i64::MIN, i64::MAX, &[], cache);
             all_ticks.extend(ticks);
         }
-
-        // Remove old tables
-        for path in &table_paths {
-            std::fs::remove_file(path).ok();
-        }
-        self.levels[level_idx].tables.clear();
 
         // Sort and deduplicate
         all_ticks.sort_by(|a, b| {
@@ -156,6 +154,12 @@ impl CompactionManager {
             let table = SsTable::write(&path, chunk, next_level as u32, &self.symbol_dict)?;
             self.bytes_written += table.meta.file_size;
             self.levels[next_level].add_table(table);
+        }
+
+        // Remove old tables only after the merged output is durably written.
+        self.levels[level_idx].tables.clear();
+        for path in &table_paths {
+            std::fs::remove_file(path).ok();
         }
 
         Ok(())

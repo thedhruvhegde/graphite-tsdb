@@ -140,10 +140,10 @@ impl<'a> Executor<'a> {
             };
         }
 
-        if query.limit.is_some() {
+        if let Some(limit) = query.limit {
             root = ExplainNode {
-                operator: format!("Limit({})", query.limit.unwrap()),
-                estimated_rows: query.limit.unwrap(),
+                operator: format!("Limit({limit})"),
+                estimated_rows: limit,
                 children: vec![root],
             };
         }
@@ -292,14 +292,16 @@ fn simd_filter_prices(ticks: &[Tick], threshold: f64, op: SimdOp) -> Vec<Tick> {
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") {
-            return simd_filter_avx2(ticks, threshold, op);
+            // SAFETY: guarded by runtime AVX2 detection above.
+            return unsafe { simd_filter_avx2(ticks, threshold, op) };
         }
     }
     scalar_filter_prices(ticks, threshold, op)
 }
 
 #[cfg(target_arch = "x86_64")]
-fn simd_filter_avx2(ticks: &[Tick], threshold: f64, op: SimdOp) -> Vec<Tick> {
+#[target_feature(enable = "avx2")]
+unsafe fn simd_filter_avx2(ticks: &[Tick], threshold: f64, op: SimdOp) -> Vec<Tick> {
     let mut result = Vec::new();
     let threshold_vec = _mm256_set1_pd(threshold);
     let mut i = 0;

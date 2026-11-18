@@ -163,9 +163,6 @@ impl SsTable {
             vol_col.len(),
             sym_col.len(),
         ];
-        for size in &col_sizes {
-            data_buf.extend_from_slice(&(*size as u32).to_be_bytes());
-        }
         data_buf.extend_from_slice(&ts_col);
         data_buf.extend_from_slice(&open_col);
         data_buf.extend_from_slice(&high_col);
@@ -173,8 +170,12 @@ impl SsTable {
         data_buf.extend_from_slice(&close_col);
         data_buf.extend_from_slice(&vol_col);
         data_buf.extend_from_slice(&sym_col);
+        // Column-size trailer (7 x u32) at the end of the data section.
+        for size in &col_sizes {
+            data_buf.extend_from_slice(&(*size as u32).to_be_bytes());
+        }
 
-        let data_offset = 8u64; // after header
+        let data_offset = 6u64; // after header: magic (u32) + version (u16)
         file.write_all(&SSTABLE_MAGIC.to_be_bytes())?;
         file.write_all(&SSTABLE_VERSION.to_be_bytes())?;
         file.write_all(&data_buf)?;
@@ -382,7 +383,11 @@ impl SsTable {
             *slot = u32::from_be_bytes(data[start..start + 4].try_into().unwrap());
         }
 
-        let col_start = col_sizes_offset + 28;
+        let total_cols: usize = col_sizes.iter().map(|s| *s as usize).sum();
+        if total_cols > col_sizes_offset {
+            return Vec::new();
+        }
+        let col_start = col_sizes_offset - total_cols;
         let mut offset = col_start;
         let ts_data = &data[offset..offset + col_sizes[0] as usize];
         offset += col_sizes[0] as usize;

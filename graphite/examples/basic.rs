@@ -7,10 +7,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     db.insert("AAPL", 1_700_000_000_000_000_000, 150.0, 151.0, 149.0, 150.5, 10000)?;
 
-    let result = db.query("SELECT * FROM AAPL WHERE timestamp BETWEEN 0 AND 9990000000000000000")?;
+    let result = db.query("SELECT * FROM AAPL WHERE timestamp BETWEEN 0 AND 1999999999999999999")?;
     println!("query returned {} rows", result.rows.len());
 
-    let count = db.count_range("AAPL", 0, 999_000_000_000)?;
+    let count = db.count_range("AAPL", 0, 1_999_999_999_999_999_999)?;
     println!("streaming count: {}", count);
 
     let stats = db.stats();

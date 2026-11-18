@@ -107,19 +107,23 @@ impl BloomFilter {
 
 fn optimal_num_bits(num_items: usize, fpr: f64) -> usize {
     let n = num_items as f64;
-    let bits = -(n * fpr.ln()) / (2.0 * fpr.ln().powi(2));
+    // m = -n ln(p) / (ln 2)^2
+    let bits = -(n * fpr.ln()) / std::f64::consts::LN_2.powi(2);
     (bits.ceil() as usize).max(64)
 }
 
 fn optimal_num_hashes(num_bits: usize, num_items: usize) -> u32 {
     let n = num_items as f64;
-    let k = (num_bits as f64 / n) * 2.0 * std::f64::consts::E.ln();
+    // k = (m / n) ln 2
+    let k = (num_bits as f64 / n) * std::f64::consts::LN_2;
     (k.round() as u32).clamp(1, 16)
 }
 
 fn hash_to_index(hash: u64, i: u32, num_bits: usize) -> usize {
-    let combined = hash.wrapping_add(i as u64 * 0x9e3779b97f4a7c15);
-    (combined as usize) % num_bits
+    // Kirsch–Mitzenmacher double hashing: h1 + i*h2 (h2 forced odd).
+    let h1 = hash;
+    let h2 = hash.rotate_left(32).wrapping_mul(0x9e3779b97f4a7c15) | 1;
+    (h1.wrapping_add((i as u64).wrapping_mul(h2)) % num_bits as u64) as usize
 }
 
 #[cfg(test)]

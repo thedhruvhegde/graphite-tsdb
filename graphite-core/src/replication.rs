@@ -6,18 +6,15 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum NodeRole {
     /// Accepts writes and serves WAL to replicas.
+    #[default]
     Primary,
     /// Read-only; applies WAL from primary.
     Replica,
 }
 
-impl Default for NodeRole {
-    fn default() -> Self {
-        Self::Primary
-    }
-}
 
 /// A WAL entry for replication streaming.
 #[derive(Debug, Clone, Serialize, Deserialize)]
